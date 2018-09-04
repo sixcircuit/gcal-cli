@@ -4,6 +4,7 @@
   "description": "Google Calendar command line tool for Node.js",
   "bin": "index.js",
   "dependencies": {
+    "@dry/underscore": "^1.9.1",
     "chalk": "^2.1.0",
     "googleapis": "^21.3.0",
     "minimist": "^1.2.0",

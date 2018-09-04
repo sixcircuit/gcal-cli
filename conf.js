@@ -2,8 +2,11 @@
 
 const path = require('path');
 const os = require('os');
+const _ = require('@dry/underscore');
 
-module.exports = {
+var user_config = require('./config.js');
+
+module.exports = _.extend({
   SCOPES: ['https://www.googleapis.com/auth/calendar'],
 
   CRED_PATH: path.join(os.homedir(), '.gcal/client_secret.json'),
@@ -23,4 +26,4 @@ module.exports = {
   BULK_RESULT: ['id', 'summary' , 'htmlLink'],
 
   EVENT_DURATION: 60
-};
+}, user_config);

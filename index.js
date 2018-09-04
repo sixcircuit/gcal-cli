@@ -11,6 +11,7 @@ const chalk = require('chalk');
 const moment = require('moment');
 const conf = require('./conf');
 const help = require('./help');
+const _ = require('@dry/underscore');
 
 /**
  * Get absolute path
@@ -86,22 +87,14 @@ const storeToken = async (code) => {
   console.log(`Token stored in ${conf.TOKEN_PATH}`);
 };
 
-/**
- * List events
- * @param {string} [naturalInfo]
- * @param {Object} [options]
- * @param {string} options.from
- * @param {string} options.to
- * @param {boolean} options.showId
- * @returns {Promise}
- */
-const list = async (naturalInfo, options) => {
-  const { from, to, showId } = options;
+function list_params(naturalInfo, options){
+  const { from, to, view } = options;
+
   const params = {
-    calendarId: conf.CALENDAR_ID,
     singleEvents: true,
-    orderBy: conf.LIST_ORDER
+    // orderBy: conf.LIST_ORDER
   };
+
   if (naturalInfo) {
     const { startDate, endDate, isAllDay } = Sherlock.parse(naturalInfo);
     params.timeMin = moment(startDate).format() || moment().format();
@@ -124,27 +117,100 @@ const list = async (naturalInfo, options) => {
     params.timeMax = moment().endOf('day').format();
   }
 
+  return params;
+}
+
+/**
+ * List events
+ * @param {string} [naturalInfo]
+ * @param {Object} [options]
+ * @param {string} options.from
+ * @param {string} options.to
+ * @returns {Promise}
+ */
+const list = async (naturalInfo, options) => {
+
   const calendar = await getClient();
-  const { items: events } = await promisify(calendar.events.list)(params);
-  if (events.length === 0) {
-    console.log(`No upcoming events found (${params.timeMin} ~ ${params.timeMax || ''})`);
-    return;
+  const ids = await calendar_ids();
+
+  let all_events = [];
+
+  let params = list_params(naturalInfo, options);
+
+  for(var i = 0; i < ids.length; i++){
+
+    params.calendarId = ids[i];
+
+    const { items: events } = await promisify(calendar.events.list)(params);
+
+    all_events = all_events.concat(events);
+
   }
-  console.log(`Upcoming events (${params.timeMin} ~ ${params.timeMax || ''})`);
-  events.forEach(event => {
+
+  all_events.sort(function(a, b){
+    let a_moment = moment(a.start.date || a.start.dateTime);
+    let b_moment = moment(b.start.date || b.start.dateTime);
+
+    if(a_moment.isBefore(b_moment)){ return(-1); }
+    if(b_moment.isBefore(a_moment)){ return(1); }
+    return(0);
+  });
+
+  if (all_events.length === 0) {
+    console.log(`No upcoming events found (${params.timeMin} ~ ${params.timeMax || ''})`);
+  }else{
+    console.log(`Upcoming events (${params.timeMin} ~ ${params.timeMax || ''})`);
+    print_events(all_events, options);
+  }
+
+};
+
+function print_events(events, options){
+  const { view, todo } = options;
+
+  _.each(events, event => {
     let start;
     if (event.start.dateTime) {
       start = moment(event.start.dateTime).format(conf.LIST_FORMAT_DATETIME);
     } else {
       start = moment(event.start.date).format(conf.LIST_FORMAT_DATE);
     }
-    if (showId) {
-      console.log(` ${start} - ${chalk.bold(event.summary)} (${event.id})`);
-    } else {
-      console.log(` ${start} - ${chalk.bold(event.summary)}`);
+
+    if(todo){
+      if(event.start.date){ // all day event
+        console.log(`- ${event.summary}`.toLowerCase());
+      }
+    }else if(view){
+      console.log(JSON.stringify(_.map(view, key => { return event[key]; })));
+    }else{
+      console.log(`${start} - ${chalk.bold(event.summary)}`);
     }
   });
+}
+
+const calendar_ids = async function(){
+  const params = { };
+
+  const calendar = await getClient();
+  let { items: calendars } = await promisify(calendar.calendarList.list)(params);
+
+  calendars = _.filter(calendars, (c) => { return(!_.contains(conf.ignore, c.id)); });
+
+  return _.pluck(calendars, "id");
+}
+
+ 
+const list_calendars = async (options) => {
+  const params = { };
+
+  const calendar = await getClient();
+  const { items: calendars } = await promisify(calendar.calendarList.list)(params);
+
+  _.each(calendars, function(calendar){
+    console.log(calendar.summary + ": " + calendar.accessRole + ": " + calendar.id);
+  });
 };
+
 
 /**
  * Insert event
@@ -240,6 +306,7 @@ const bulk = async (eventsPath) => {
 // main
 (async function () {
   const command = argv._[0];
+  argv.view = argv.view && JSON.parse(argv.view);
   const configPath = argv.config || argv.C;
   if (configPath) {
     const configFile = require(getPath(configPath));
@@ -255,12 +322,18 @@ const bulk = async (eventsPath) => {
       await storeToken(code);
       break;
     }
+    case 'calendars': {
+      const params = { };
+      await list_calendars(params);
+      break;
+    }
     case 'list': {
       const naturalInfo = argv._[1];
       const params = {
         from: argv.from || argv.f,
         to: argv.to || argv.t,
-        showId: argv['show-id'] || argv.i
+        view: argv.view,
+        todo: (argv['todo'] !== undefined)
       };
       await list(naturalInfo, params);
       break;

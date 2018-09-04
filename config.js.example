@@ -1,0 +1,7 @@
+
+module.exports = {
+  ignore: [
+    // 'some_calendar_id'
+  ],
+};
+
